@@ -17,6 +17,8 @@
 #include "fasthash.h" // fasthash64
 #include "sched.h" // sched_wake_task
 
+//#include "board/armcm_timer.h" // udelay(uint32_t) and timer_read_time(void)
+
 #define CANBUS_UUID_LEN 6
 
 // Global storage
@@ -140,6 +142,15 @@ can_decode_nodeid(int nodeid)
     return (nodeid << 1) + 0x100;
 }
 
+// microsecond delay helper borrowed from sensor_angle.c (why can't take from armcm_timer.h?)
+static inline void
+udelay(uint32_t usecs)
+{
+    uint32_t end = timer_read_time() + timer_from_us(usecs);
+    while (!timer_is_before(end, timer_read_time()))
+        irq_poll();
+}
+
 static void
 can_process_query_unassigned(struct canbus_msg *msg)
 {
@@ -151,6 +162,11 @@ can_process_query_unassigned(struct canbus_msg *msg)
     send.data[0] = CANBUS_RESP_NEED_NODEID;
     memcpy(&send.data[1], CanData.uuid, sizeof(CanData.uuid));
     send.data[7] = CANBUS_CMD_SET_KLIPPER_NODEID;
+
+    // hack introduce random delay of 0 upto about 0.5 sec (=500000 usec)
+    // take last 19 bits (mask 0x7FFFF fit max value 524287) of current time
+    udelay(timer_read_time() & 0x7FFFF);
+
     // Send with retry
     for (;;) {
         int ret = canbus_send(&send);
