@@ -115,6 +115,7 @@ console_sendf(const struct command_encoder *ce, va_list args)
 #define CANBUS_CMD_QUERY_UNASSIGNED 0x00
 #define CANBUS_CMD_SET_KLIPPER_NODEID 0x01
 #define CANBUS_CMD_REQUEST_BOOTLOADER 0x02
+#define CANBUS_CMD_QUERY_UNASSIGNED_EXTENDED 0x03
 #define CANBUS_RESP_NEED_NODEID 0x20
 
 // Helper to verify a UUID in a command matches this chip's UUID
@@ -146,6 +147,33 @@ can_process_query_unassigned(struct canbus_msg *msg)
         return;
     struct canbus_msg send;
     send.id = CANBUS_ID_ADMIN_RESP;
+    send.dlc = 8;
+    send.data[0] = CANBUS_RESP_NEED_NODEID;
+    memcpy(&send.data[1], CanData.uuid, sizeof(CanData.uuid));
+    send.data[7] = CANBUS_CMD_SET_KLIPPER_NODEID;
+    // Send with retry
+    for (;;) {
+        int ret = canserial_send(&send);
+        if (ret >= 0)
+            return;
+    }
+}
+
+static void
+can_process_query_unassigned_extended(struct canbus_msg *msg)
+{
+    if (CanData.assigned_id)
+        return;
+    struct canbus_msg send;
+
+    // assuming here that the CanData.uuid is 6 bytes long - which is also done in can_process_query_unassigned function
+    send.id =
+        ((uint64_t)CanData.uuid[0] << 21) | // take the msb 29 bits of the uuid
+        ((uint64_t)CanData.uuid[1] << 13) |
+        ((uint64_t)CanData.uuid[2] <<  5) |
+        ((uint64_t)CanData.uuid[3] >>  3) |
+        CANMSG_ID_EFF; // set msb of the uint64_t to instruct using extended id
+
     send.dlc = 8;
     send.data[0] = CANBUS_RESP_NEED_NODEID;
     memcpy(&send.data[1], CanData.uuid, sizeof(CanData.uuid));
@@ -205,6 +233,9 @@ can_process_admin(struct canbus_msg *msg)
         break;
     case CANBUS_CMD_REQUEST_BOOTLOADER:
         can_process_request_bootloader(msg);
+        break;
+    case CANBUS_CMD_QUERY_UNASSIGNED_EXTENDED:
+        can_process_query_unassigned_extended(msg);
         break;
     }
 }
